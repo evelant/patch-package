@@ -9,9 +9,15 @@ export function parseBunLockfile(lockFilePath: string): string {
   // Check if the file is a text-based lockfile (bun.lock)
   if (lockFilePath.endsWith(".lock")) {
     const content = readFileSync(lockFilePath, "utf8")
-    // Parse with JSON5 and stringify with standard JSON to ensure compatibility
-    const parsed = JSON5.parse(content)
-    return JSON.stringify(parsed)
+    try {
+      // Parse with JSON5 and stringify with standard JSON to ensure compatibility
+      const parsed = JSON5.parse(content)
+      return JSON.stringify(parsed)
+    } catch (e) {
+      console.error(`Error parsing bun.lock file: ${e.message}`)
+      // Return the raw content as a fallback
+      return content
+    }
   }
 
   // Check if there's a text-based lockfile in the same directory
@@ -19,9 +25,15 @@ export function parseBunLockfile(lockFilePath: string): string {
   const textLockfilePath = join(lockDir, "bun.lock")
   if (existsSync(textLockfilePath)) {
     const content = readFileSync(textLockfilePath, "utf8")
-    // Parse with JSON5 and stringify with standard JSON to ensure compatibility
-    const parsed = JSON5.parse(content)
-    return JSON.stringify(parsed)
+    try {
+      // Parse with JSON5 and stringify with standard JSON to ensure compatibility
+      const parsed = JSON5.parse(content)
+      return JSON.stringify(parsed)
+    } catch (e) {
+      console.error(`Error parsing bun.lock file: ${e.message}`)
+      // Return the raw content as a fallback
+      return content
+    }
   }
 
   // Otherwise, use bun CLI to parse the binary lockfile

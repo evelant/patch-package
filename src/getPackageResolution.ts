@@ -52,28 +52,115 @@ export function getPackageResolution({
     const lockFileString = isBun
       ? parseBunLockfile(lockFilePath)
       : readFileSync(lockFilePath).toString()
-    let appLockFile
-    if (lockFileString.includes("yarn lockfile v1")) {
+    // Define a type for the lockfile entries
+    interface LockfileEntry {
+      version: string
+      resolved?: string
+      from?: string
+      dependencies?: Record<string, string>
+      [key: string]: any
+    }
+
+    let appLockFile: Record<string, LockfileEntry>
+
+    if (isBun) {
+      try {
+        // Parse the JSON string
+        const bunLockfile = JSON.parse(lockFileString)
+
+        // For Bun text lockfiles, we need to handle the different structure
+        if (bunLockfile.packages) {
+          // Create a compatible structure for our existing code
+          appLockFile = {} as Record<string, LockfileEntry>
+
+          // Convert the packages entries to the format our code expects
+          Object.entries(bunLockfile.packages).forEach(
+            ([packageKey, packageValue]) => {
+              // Extract the package name from the key (which might be "package-name" or "@scope/package-name")
+              let packageName = packageKey
+
+              // packageValue is an array with format [resolvedNameVersion, path, metadata, hash]
+              const resolvedNameVersion = (packageValue as [
+                string,
+                string,
+                any,
+                string,
+              ])[0]
+
+              if (resolvedNameVersion) {
+                // The resolved name version is in the format "package-name@version"
+                const parts = resolvedNameVersion.split("@")
+                let version
+
+                // Handle scoped packages (@scope/package-name)
+                if (parts.length > 2 && parts[0] === "") {
+                  packageName = `@${parts[1]}`
+                  version = parts.slice(2).join("@") // Handle versions with @ in them
+                } else {
+                  packageName = parts[0]
+                  version = parts.slice(1).join("@") // Handle versions with @ in them
+                }
+
+                if (packageName && version) {
+                  // Create an entry in the format "package@version": { version: "version" }
+                  appLockFile[`${packageName}@${version}`] = {
+                    version,
+                    resolved: resolvedNameVersion,
+                  }
+                }
+              }
+            },
+          )
+        } else if (bunLockfile.workspaces) {
+          // Handle workspaces structure
+          appLockFile = {} as Record<string, LockfileEntry>
+
+          // First, collect all dependencies from workspaces
+          const allDependencies: Record<string, string> = {}
+          Object.values(bunLockfile.workspaces).forEach((workspace) => {
+            const typedWorkspace = workspace as {
+              dependencies?: Record<string, string>
+            }
+            if (typedWorkspace.dependencies) {
+              Object.entries(typedWorkspace.dependencies).forEach(
+                ([name, version]) => {
+                  allDependencies[name] = version
+                },
+              )
+            }
+          })
+
+          // Then create entries for each dependency
+          Object.entries(allDependencies).forEach(([name, version]) => {
+            appLockFile[`${name}@${version}`] = {
+              version,
+              resolved: `${name}@${version}`,
+            }
+          })
+        } else {
+          // If there's no packages object, just use the parsed JSON
+          appLockFile = bunLockfile as Record<string, LockfileEntry>
+        }
+      } catch (e) {
+        console.log(e)
+        throw new Error(`Could not parse bun lock file: ${e.message}`)
+      }
+    } else if (lockFileString.includes("yarn lockfile v1")) {
       const parsedYarnLockFile = parseYarnLockFile(lockFileString)
       if (parsedYarnLockFile.type !== "success") {
-        throw new Error(
-          `Could not parse yarn v1 lock file ${
-            isBun ? "- was originally a bun.lockb file" : ""
-          }`,
-        )
+        throw new Error(`Could not parse yarn v1 lock file`)
       } else {
-        appLockFile = parsedYarnLockFile.object
+        appLockFile = parsedYarnLockFile.object as Record<string, LockfileEntry>
       }
     } else {
       try {
-        appLockFile = yaml.parse(lockFileString)
+        appLockFile = yaml.parse(lockFileString) as Record<
+          string,
+          LockfileEntry
+        >
       } catch (e) {
         console.log(e)
-        throw new Error(
-          `Could not parse yarn v2 lock file ${
-            isBun ? "- was originally a bun.lockb file (should not happen)" : ""
-          }`,
-        )
+        throw new Error(`Could not parse yarn v2 lock file`)
       }
     }
 
@@ -81,19 +168,81 @@ export function getPackageResolution({
       join(resolve(appPath, packageDetails.path), "package.json"),
     )
 
-    const entries = Object.entries(appLockFile).filter(
-      ([k, v]) =>
+    // Debug logging
+    if (isBun) {
+      console.log(
+        `Looking for package: ${packageDetails.name}@${installedVersion}`,
+      )
+      console.log(
+        `Available packages in lockfile: ${Object.keys(appLockFile).join(
+          ", ",
+        )}`,
+      )
+    }
+
+    const entries = Object.entries(appLockFile).filter(([k, v]) => {
+      const matches =
         k.startsWith(packageDetails.name + "@") &&
-        // @ts-ignore
-        coerceSemVer(v.version) === coerceSemVer(installedVersion),
-    )
+        coerceSemVer(v.version) === coerceSemVer(installedVersion)
+
+      // Debug logging
+      if (isBun && k.startsWith(packageDetails.name + "@")) {
+        console.log(
+          `Found entry: ${k}, version: ${v.version}, installed version: ${installedVersion}, matches: ${matches}`,
+        )
+      }
+
+      return matches
+    })
 
     const resolutions = entries.map(([_, v]) => {
-      // @ts-ignore
-      return v.resolved
+      return v.resolved || v.version
     })
 
     if (resolutions.length === 0) {
+      // Try a more lenient approach for Bun lockfiles
+      if (isBun) {
+        console.log(`Trying alternative approach for Bun lockfile...`)
+        // Look for the package in the original lockfile structure
+        const bunLockfile = JSON.parse(lockFileString)
+
+        if (bunLockfile.packages) {
+          // Look for the package directly in the packages object
+          for (const [key, value] of Object.entries(bunLockfile.packages)) {
+            if (
+              (value as [string, any, any, string])[0] &&
+              (value as [string, any, any, string])[0].includes(
+                `${packageDetails.name}@`,
+              )
+            ) {
+              console.log(
+                `Found package in raw lockfile: ${key} -> ${(value as any)[0]}`,
+              )
+              return (value as [string, any, any, string])[0]
+            }
+          }
+        }
+
+        // Try looking in workspaces
+        if (bunLockfile.workspaces) {
+          for (const workspace of Object.values(bunLockfile.workspaces)) {
+            const typedWorkspace = workspace as {
+              dependencies?: Record<string, string>
+            }
+            if (
+              typedWorkspace.dependencies &&
+              typedWorkspace.dependencies[packageDetails.name]
+            ) {
+              const version = typedWorkspace.dependencies[packageDetails.name]
+              console.log(
+                `Found package in workspace dependencies: ${packageDetails.name}@${version}`,
+              )
+              return `${packageDetails.name}@${version}`
+            }
+          }
+        }
+      }
+
       throw new Error(
         `\`${packageDetails.pathSpecifier}\`'s installed version is ${installedVersion} but a lockfile entry for it couldn't be found. Your lockfile is likely to be corrupt or you forgot to reinstall your packages.`,
       )
