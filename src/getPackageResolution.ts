@@ -196,6 +196,21 @@ export function getPackageResolution({
     })
 
     const resolutions = entries.map(([_, v]) => {
+      // For Bun packages, make sure we don't include the package name in the resolution
+      if (isBun && v.resolved && v.resolved.includes("@")) {
+        // If the resolved value is in the format "packageName@version", just return the version
+        const parts = v.resolved.split("@")
+        if (parts.length >= 2) {
+          // Handle scoped packages (@scope/package-name)
+          if (parts[0] === "" && parts.length >= 3) {
+            // For scoped packages, return just the version
+            return parts.slice(2).join("@")
+          } else {
+            // For regular packages, return just the version
+            return parts.slice(1).join("@")
+          }
+        }
+      }
       return v.resolved || v.version
     })
 
@@ -218,7 +233,20 @@ export function getPackageResolution({
               console.log(
                 `Found package in raw lockfile: ${key} -> ${(value as any)[0]}`,
               )
-              return (value as [string, any, any, string])[0]
+              // Extract just the version from the resolved value
+              const resolvedValue = (value as [string, any, any, string])[0]
+              const parts = resolvedValue.split("@")
+              if (parts.length >= 2) {
+                // Handle scoped packages (@scope/package-name)
+                if (parts[0] === "" && parts.length >= 3) {
+                  // For scoped packages, return just the version
+                  return parts.slice(2).join("@")
+                } else {
+                  // For regular packages, return just the version
+                  return parts.slice(1).join("@")
+                }
+              }
+              return resolvedValue
             }
           }
         }
@@ -237,7 +265,7 @@ export function getPackageResolution({
               console.log(
                 `Found package in workspace dependencies: ${packageDetails.name}@${version}`,
               )
-              return `${packageDetails.name}@${version}`
+              return version
             }
           }
         }
