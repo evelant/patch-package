@@ -17,7 +17,7 @@ ${chalk.red.bold("**ERROR**")} ${chalk.red(
 function printNoBunLockfileError() {
   console.log(`
 ${chalk.red.bold("**ERROR**")} ${chalk.red(
-    `The --use-bun option was specified but there is no bun.lockb file`,
+    `The --use-bun option was specified but there is no bun.lockb or bun.lock file`,
   )}
 `)
 }
@@ -25,7 +25,7 @@ ${chalk.red.bold("**ERROR**")} ${chalk.red(
 function printNoLockfilesError() {
   console.log(`
 ${chalk.red.bold("**ERROR**")} ${chalk.red(
-    `No package-lock.json, npm-shrinkwrap.json, yarn.lock, or bun.lockb file.
+    `No package-lock.json, npm-shrinkwrap.json, yarn.lock, bun.lockb, or bun.lock file.
 
 You must use either npm@>=5, yarn, npm-shrinkwrap, or bun to manage this project's
 dependencies.`,
@@ -47,9 +47,7 @@ deleting the conflicting lockfile if you don't need it
 
 function printSelectingDefaultYarnMessage() {
   console.info(
-    `${chalk.bold(
-      "patch-package",
-    )}: you have both yarn.lock and bun.lockb lockfiles
+    `${chalk.bold("patch-package")}: you have both yarn.lock and bun lockfiles
 Defaulting to using ${chalk.bold("yarn")}
 You can override this setting by passing --use-bun, or
 deleting yarn.lock if you don't need it
@@ -88,11 +86,15 @@ export const detectPackageManager = (
   const bunLockbExists = fs.existsSync(
     join(findWorkspaceRoot() ?? appRootPath, "bun.lockb"),
   )
+  const bunLockExists = fs.existsSync(
+    join(findWorkspaceRoot() ?? appRootPath, "bun.lock"),
+  )
+  const bunLockfileExists = bunLockbExists || bunLockExists
   if (
     [
       packageLockExists || shrinkWrapExists,
       yarnLockExists,
-      bunLockbExists,
+      bunLockfileExists,
     ].filter(Boolean).length > 1
   ) {
     if (overridePackageManager) {
@@ -112,7 +114,7 @@ export const detectPackageManager = (
   } else if (yarnLockExists) {
     checkForBunOverride(overridePackageManager)
     return "yarn"
-  } else if (bunLockbExists) {
+  } else if (bunLockfileExists) {
     checkForYarnOverride(overridePackageManager)
     return "bun"
   } else {

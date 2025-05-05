@@ -20,17 +20,34 @@ export function getPackageResolution({
 }) {
   if (packageManager === "yarn" || packageManager === "bun") {
     const isBun = packageManager === "bun"
-    const lockFileName = isBun ? "bun.lockb" : "yarn.lock"
+    let lockFileName = isBun ? "bun.lockb" : "yarn.lock"
     let lockFilePath = lockFileName
-    if (!existsSync(lockFilePath)) {
+
+    // For Bun, check for text-based lockfile first
+    if (isBun && existsSync("bun.lock")) {
+      lockFileName = "bun.lock"
+      lockFilePath = lockFileName
+    } else if (!existsSync(lockFilePath)) {
       const workspaceRoot = findWorkspaceRoot()
       if (!workspaceRoot) {
-        throw new Error(`Can't find ${lockFileName} file`)
+        throw new Error(
+          `Can't find ${isBun ? "bun.lockb or bun.lock" : lockFileName} file`,
+        )
       }
-      lockFilePath = join(workspaceRoot, lockFilePath)
+
+      // For Bun, check for text-based lockfile in workspace root
+      if (isBun && existsSync(join(workspaceRoot, "bun.lock"))) {
+        lockFileName = "bun.lock"
+        lockFilePath = join(workspaceRoot, lockFileName)
+      } else {
+        lockFilePath = join(workspaceRoot, lockFilePath)
+      }
     }
+
     if (!existsSync(lockFilePath)) {
-      throw new Error(`Can't find ${lockFileName} file`)
+      throw new Error(
+        `Can't find ${isBun ? "bun.lockb or bun.lock" : lockFileName} file`,
+      )
     }
     const lockFileString = isBun
       ? parseBunLockfile(lockFilePath)

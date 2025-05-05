@@ -57,3 +57,6 @@ jspm_packages/
 patch-package.test.tgz
 
 .yarn/cache
+
+#jetbrains
+.idea
