@@ -223,6 +223,43 @@ export function makePatch({
           },
         )
       }
+    } else if (packageManager === "bun") {
+      console.info(
+        chalk.grey("•"),
+        `Installing ${packageDetails.name}@${packageVersion} with bun`,
+      )
+      try {
+        // Try installing with bun first
+        spawnSafeSync(`bun`, ["install", "--no-save"], {
+          cwd: tmpRepoNpmRoot,
+          logStdErrOnError: true,
+          env: { ...process.env, NODE_ENV: "development" },
+        })
+      } catch (e) {
+        console.info(
+          chalk.yellow("⚠"),
+          `Bun installation failed, falling back to npm`,
+        )
+        try {
+          // Fall back to npm if bun fails
+          spawnSafeSync(`npm`, ["i", "--force", "--no-fund", "--no-audit"], {
+            cwd: tmpRepoNpmRoot,
+            logStdErrOnError: true,
+            env: { ...process.env, NODE_ENV: "development" },
+          })
+        } catch (e) {
+          // try again while ignoring scripts
+          spawnSafeSync(
+            `npm`,
+            ["i", "--ignore-scripts", "--force", "--no-fund", "--no-audit"],
+            {
+              cwd: tmpRepoNpmRoot,
+              logStdErrOnError: true,
+              env: { ...process.env, NODE_ENV: "development" },
+            },
+          )
+        }
+      }
     } else {
       console.info(
         chalk.grey("•"),
@@ -231,18 +268,23 @@ export function makePatch({
       try {
         // try first without ignoring scripts in case they are required
         // this works in 99.99% of cases
-        spawnSafeSync(`npm`, ["i", "--force"], {
+        spawnSafeSync(`npm`, ["i", "--force", "--no-fund", "--no-audit"], {
           cwd: tmpRepoNpmRoot,
-          logStdErrOnError: false,
-          stdio: "ignore",
+          logStdErrOnError: true,
+          env: { ...process.env, NODE_ENV: "development" },
         })
       } catch (e) {
         // try again while ignoring scripts in case the script depends on
         // an implicit context which we haven't reproduced
-        spawnSafeSync(`npm`, ["i", "--ignore-scripts", "--force"], {
-          cwd: tmpRepoNpmRoot,
-          stdio: "ignore",
-        })
+        spawnSafeSync(
+          `npm`,
+          ["i", "--ignore-scripts", "--force", "--no-fund", "--no-audit"],
+          {
+            cwd: tmpRepoNpmRoot,
+            logStdErrOnError: true,
+            env: { ...process.env, NODE_ENV: "development" },
+          },
+        )
       }
     }
 
@@ -346,7 +388,7 @@ export function makePatch({
 
   Your changes involve creating symlinks. patch-package does not yet support
   symlinks.
-  
+
   ️Please use ${chalk.bold("--include")} and/or ${chalk.bold(
           "--exclude",
         )} to narrow the scope of your patch if
@@ -365,18 +407,18 @@ export function makePatch({
         )
         console.log(`
 ⛔️ ${chalk.red.bold("ERROR")}
-        
+
   patch-package was unable to read the patch-file made by git. This should not
   happen.
-  
+
   A diagnostic file was written to
-  
+
     ${outPath}
-  
+
   Please attach it to a github issue
-  
+
     https://github.com/ds300/patch-package/issues/new?title=New+patch+parse+failed&body=Please+attach+the+diagnostic+file+by+dragging+it+into+here+🙏
-  
+
   Note that this diagnostic file will contain code from the package you were
   attempting to patch.
 
